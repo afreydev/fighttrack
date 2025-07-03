@@ -1,0 +1,435 @@
+{% extends "base.html" %}
+
+{% block title %}Reporte de Estudiante - Sistema de Control de Acceso{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="fas fa-user-graduate"></i> Reporte de Estudiante</h1>
+    <div>
+        <a href="/admin/students" class="btn btn-secondary">
+            <i class="fas fa-arrow-left"></i> Volver a Estudiantes
+        </a>
+        <button class="btn btn-primary" onclick="window.print()">
+            <i class="fas fa-print"></i> Imprimir
+        </button>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-user"></i> Información del Estudiante</h5>
+            </div>
+            <div class="card-body" id="studentInfo">
+                <p class="text-muted">Cargando información...</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-8">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-bar"></i> Estadísticas de Acceso</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h3 class="text-primary" id="totalAccesses">0</h3>
+                            <p class="text-muted">Total de Accesos</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h3 class="text-success" id="remainingAccesses">0</h3>
+                            <p class="text-muted">Accesos Restantes</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h3 class="text-warning" id="thisMonthAccesses">0</h3>
+                            <p class="text-muted">Este Mes</p>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <h3 class="text-info" id="planStatus">-</h3>
+                            <p class="text-muted">Estado del Plan</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-clipboard-list"></i> Plan Actual</h5>
+            </div>
+            <div class="card-body" id="currentPlan">
+                <p class="text-muted">Cargando plan...</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-calendar-alt"></i> Progreso Mensual</h5>
+            </div>
+            <div class="card-body">
+                <div class="progress mb-3">
+                    <div class="progress-bar" role="progressbar" style="width: 0%" id="progressBar">
+                        0%
+                    </div>
+                </div>
+                <p class="text-muted" id="progressText">Calculando progreso...</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5><i class="fas fa-history"></i> Historial de Accesos</h5>
+        <div class="d-flex gap-2">
+            <button class="btn btn-outline-info btn-sm" onclick="filterByToday()">
+                <i class="fas fa-calendar-day"></i> Hoy
+            </button>
+            <input type="date" class="form-control form-control-sm" id="accessDateFilter" placeholder="Filtrar por fecha">
+            <button class="btn btn-outline-primary btn-sm" onclick="filterAccessLogsByDate()">
+                <i class="fas fa-filter"></i>
+            </button>
+            <button class="btn btn-outline-secondary btn-sm" onclick="clearDateFilter()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped" id="accessHistoryTable">
+                <thead>
+                    <tr>
+                        <th>Fecha y Hora</th>
+                        <th>Plan</th>
+                        <th>Notas</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Data will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+const studentId = {{ student_id }};
+let reportData = null;
+let currentPage = 1;
+const recordsPerPage = 20;
+let filteredAccessLogs = [];
+
+// Main function to load student report
+async function loadStudentReport() {
+    try {
+        const token = getCookieValue('access_token');
+        if (!token) {
+            window.location.href = '/admin/login';
+            return;
+        }
+        
+        console.log('Loading student report for student ID:', studentId);
+        
+        const response = await axios.get(`/api/reports/student/${studentId}`, {
+            headers: { 
+                'Authorization': token,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        console.log('Student report data received:', response.data);
+        reportData = response.data;
+        
+        if (!reportData.student) {
+            console.error('Missing student data in report');
+            alert('Error: Datos del estudiante no disponibles');
+            return;
+        }
+        
+        if (!reportData.access_logs) {
+            console.warn('No access_logs data, setting empty array');
+            reportData.access_logs = [];
+        }
+        
+        renderStudentReport();
+    } catch (error) {
+        console.error('Error loading student report:', error);
+        if (error.response && error.response.status === 401) {
+            window.location.href = '/admin/login';
+        } else {
+            alert('Error al cargar el reporte: ' + (error.message || 'Error desconocido'));
+        }
+    }
+}
+
+// Render the complete student report
+function renderStudentReport() {
+    if (!reportData || !reportData.student) return;
+    
+    // Student information
+    const studentInfo = document.getElementById('studentInfo');
+    studentInfo.innerHTML = `
+        <p><strong>Nombre:</strong> ${reportData.student.name}</p>
+        <p><strong>Documento:</strong> ${reportData.student.document}</p>
+        <p><strong>Fecha de Registro:</strong> ${new Date(reportData.student.created_at).toLocaleDateString()}</p>
+        <p><strong>Última Actualización:</strong> ${new Date(reportData.student.updated_at).toLocaleDateString()}</p>
+    `;
+    
+    // Statistics
+    document.getElementById('totalAccesses').textContent = reportData.total_accesses || 0;
+    document.getElementById('remainingAccesses').textContent = reportData.remaining_accesses || 0;
+    
+    // Current plan
+    const currentPlan = document.getElementById('currentPlan');
+    if (reportData.current_plan && reportData.current_plan.plan) {
+        currentPlan.innerHTML = `
+            <p><strong>Plan:</strong> ${reportData.current_plan.plan.name}</p>
+            <p><strong>Ingresos Mensuales:</strong> ${reportData.current_plan.plan.monthly_entries}</p>
+            <p><strong>Fecha de Inicio:</strong> ${new Date(reportData.current_plan.start_date).toLocaleDateString()}</p>
+            <p><strong>Fecha de Fin:</strong> ${new Date(reportData.current_plan.end_date).toLocaleDateString()}</p>
+            <p><strong>Estado:</strong> 
+                <span class="badge bg-${reportData.current_plan.is_active ? 'success' : 'secondary'}">
+                    ${reportData.current_plan.is_active ? 'Activo' : 'Inactivo'}
+                </span>
+            </p>
+        `;
+        
+        // Plan status
+        const now = new Date();
+        const endDate = new Date(reportData.current_plan.end_date);
+        const planStatus = document.getElementById('planStatus');
+        
+        if (now > endDate) {
+            planStatus.textContent = 'Vencido';
+            planStatus.className = 'text-danger';
+        } else if (reportData.current_plan.is_active) {
+            planStatus.textContent = 'Activo';
+            planStatus.className = 'text-success';
+        } else {
+            planStatus.textContent = 'Inactivo';
+            planStatus.className = 'text-secondary';
+        }
+        
+        // Progress bar
+        const used = reportData.current_plan.plan.monthly_entries - (reportData.remaining_accesses || 0);
+        const total = reportData.current_plan.plan.monthly_entries;
+        const percentage = Math.round((used / total) * 100);
+        
+        const progressBar = document.getElementById('progressBar');
+        progressBar.style.width = percentage + '%';
+        progressBar.textContent = percentage + '%';
+        
+        if (percentage < 50) {
+            progressBar.className = 'progress-bar bg-success';
+        } else if (percentage < 80) {
+            progressBar.className = 'progress-bar bg-warning';
+        } else {
+            progressBar.className = 'progress-bar bg-danger';
+        }
+        
+        document.getElementById('progressText').textContent = `${used} de ${total} accesos utilizados este mes`;
+    } else {
+        currentPlan.innerHTML = '<p class="text-muted">No hay plan activo</p>';
+        document.getElementById('planStatus').textContent = 'Sin Plan';
+        document.getElementById('planStatus').className = 'text-secondary';
+        document.getElementById('progressText').textContent = 'No hay plan activo';
+        
+        const progressBar = document.getElementById('progressBar');
+        progressBar.style.width = '0%';
+        progressBar.textContent = '0%';
+        progressBar.className = 'progress-bar bg-secondary';
+    }
+    
+    // Monthly accesses
+    const thisMonth = new Date();
+    const monthStart = new Date(thisMonth.getFullYear(), thisMonth.getMonth(), 1);
+    const allAccessLogs = reportData.access_logs || [];
+    const monthlyAccesses = allAccessLogs.filter(log => 
+        new Date(log.access_time) >= monthStart
+    ).length;
+    document.getElementById('thisMonthAccesses').textContent = monthlyAccesses;
+    
+    // Setup access history
+    filteredAccessLogs = allAccessLogs.sort((a, b) => new Date(b.access_time) - new Date(a.access_time));
+    renderAccessHistory();
+    setupPagination();
+}
+
+// Render access history table
+function renderAccessHistory() {
+    const tbody = document.querySelector('#accessHistoryTable tbody');
+    
+    if (filteredAccessLogs.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="text-center text-muted">No hay registros de acceso</td></tr>';
+        return;
+    }
+    
+    const startIndex = (currentPage - 1) * recordsPerPage;
+    const endIndex = startIndex + recordsPerPage;
+    const paginatedLogs = filteredAccessLogs.slice(startIndex, endIndex);
+    
+    tbody.innerHTML = paginatedLogs.map(log => `
+        <tr>
+            <td>${new Date(log.access_time).toLocaleString()}</td>
+            <td>${log.student_plan && log.student_plan.plan ? log.student_plan.plan.name : 'N/A'}</td>
+            <td>${log.notes || '-'}</td>
+        </tr>
+    `).join('');
+}
+
+// Setup pagination controls
+function setupPagination() {
+    const totalPages = Math.ceil(filteredAccessLogs.length / recordsPerPage);
+    
+    let paginationContainer = document.getElementById('accessHistoryPagination');
+    if (!paginationContainer) {
+        paginationContainer = document.createElement('div');
+        paginationContainer.id = 'accessHistoryPagination';
+        paginationContainer.className = 'mt-3 d-flex justify-content-between align-items-center';
+        
+        const historyTable = document.querySelector('#accessHistoryTable').parentElement;
+        historyTable.appendChild(paginationContainer);
+    }
+    
+    if (totalPages <= 1) {
+        paginationContainer.innerHTML = `
+            <div class="text-muted">
+                Mostrando ${filteredAccessLogs.length} registro${filteredAccessLogs.length !== 1 ? 's' : ''}
+            </div>
+        `;
+        return;
+    }
+    
+    let paginationHTML = '<nav><ul class="pagination pagination-sm mb-0">';
+    
+    if (currentPage > 1) {
+        paginationHTML += `
+            <li class="page-item">
+                <a class="page-link" href="#" onclick="changePage(${currentPage - 1})">&laquo; Anterior</a>
+            </li>
+        `;
+    }
+    
+    const startPage = Math.max(1, currentPage - 2);
+    const endPage = Math.min(totalPages, currentPage + 2);
+    
+    for (let i = startPage; i <= endPage; i++) {
+        paginationHTML += `
+            <li class="page-item ${i === currentPage ? 'active' : ''}">
+                <a class="page-link" href="#" onclick="changePage(${i})">${i}</a>
+            </li>
+        `;
+    }
+    
+    if (currentPage < totalPages) {
+        paginationHTML += `
+            <li class="page-item">
+                <a class="page-link" href="#" onclick="changePage(${currentPage + 1})">Siguiente &raquo;</a>
+            </li>
+        `;
+    }
+    
+    paginationHTML += '</ul></nav>';
+    
+    const startRecord = (currentPage - 1) * recordsPerPage + 1;
+    const endRecord = Math.min(currentPage * recordsPerPage, filteredAccessLogs.length);
+    
+    paginationContainer.innerHTML = `
+        <div class="text-muted">
+            Mostrando ${startRecord} - ${endRecord} de ${filteredAccessLogs.length} registros
+        </div>
+        ${paginationHTML}
+    `;
+}
+
+// Change page function
+function changePage(page) {
+    currentPage = page;
+    renderAccessHistory();
+    setupPagination();
+}
+
+// Filter by date
+function filterAccessLogsByDate() {
+    const filterDate = document.getElementById('accessDateFilter').value;
+    const allAccessLogs = reportData.access_logs || [];
+    
+    console.log('Filtering by date:', filterDate);
+    console.log('Total logs:', allAccessLogs.length);
+    
+    if (!filterDate) {
+        filteredAccessLogs = allAccessLogs.sort((a, b) => new Date(b.access_time) - new Date(a.access_time));
+    } else {
+        // Create date in local timezone
+        const selectedDate = new Date(filterDate + 'T00:00:00');
+        console.log('Selected date (local):', selectedDate);
+        
+        filteredAccessLogs = allAccessLogs.filter(log => {
+            if (!log.access_time) return false;
+            
+            // Convert log time to local date
+            const logDate = new Date(log.access_time);
+            const logLocalDate = new Date(logDate.getFullYear(), logDate.getMonth(), logDate.getDate());
+            const selectedLocalDate = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+            
+            console.log('Log date (original):', logDate);
+            console.log('Log date (local):', logLocalDate);
+            console.log('Selected date (local):', selectedLocalDate);
+            console.log('Match:', logLocalDate.getTime() === selectedLocalDate.getTime());
+            
+            return logLocalDate.getTime() === selectedLocalDate.getTime();
+        }).sort((a, b) => new Date(b.access_time) - new Date(a.access_time));
+    }
+    
+    console.log('Filtered logs:', filteredAccessLogs.length);
+    
+    currentPage = 1;
+    renderAccessHistory();
+    setupPagination();
+}
+
+// Filter by today
+function filterByToday() {
+    const today = new Date();
+    const todayString = today.toISOString().split('T')[0];
+    
+    document.getElementById('accessDateFilter').value = todayString;
+    filterAccessLogsByDate();
+}
+
+// Clear date filter
+function clearDateFilter() {
+    document.getElementById('accessDateFilter').value = '';
+    filterAccessLogsByDate();
+}
+
+// Utility function to get cookie value
+function getCookieValue(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return '';
+}
+
+// Initialize when DOM is loaded
+document.addEventListener('DOMContentLoaded', loadStudentReport);
+</script>
+{% endblock %}

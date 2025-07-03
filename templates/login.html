@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Iniciar Sesión - Sistema de Control de Acceso{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 col-lg-4">
+        <div class="card">
+            <div class="card-header text-center">
+                <h4>
+                    <i class="fas fa-sign-in-alt"></i>
+                    {% if admin %}
+                        Administrador
+                    {% else %}
+                        Sistema de Control de Acceso
+                    {% endif %}
+                </h4>
+            </div>
+            <div class="card-body">
+                {% if admin %}
+                    <form method="post" action="/admin/login">
+                        <div class="mb-3">
+                            <label for="username" class="form-label">Usuario</label>
+                            <input type="text" class="form-control" id="username" name="username" required>
+                        </div>
+                        <div class="mb-3">
+                            <label for="password" class="form-label">Contraseña</label>
+                            <input type="password" class="form-control" id="password" name="password" required>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">
+                            <i class="fas fa-sign-in-alt"></i> Iniciar Sesión
+                        </button>
+                    </form>
+                {% else %}
+                    <div class="text-center">
+                        <p class="mb-4">Selecciona una opción para continuar:</p>
+                        <div class="d-grid gap-2">
+                            <a href="/admin/login" class="btn btn-primary">
+                                <i class="fas fa-user-shield"></i> Acceso Administrador
+                            </a>
+                            <a href="/student/access" class="btn btn-success">
+                                <i class="fas fa-user-graduate"></i> Acceso Estudiante
+                            </a>
+                        </div>
+                    </div>
+                {% endif %}
+                
+                {% if error %}
+                    <div class="alert alert-danger mt-3" role="alert">
+                        <i class="fas fa-exclamation-triangle"></i> {{ error }}
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

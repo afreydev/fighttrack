@@ -1,0 +1,479 @@
+{% extends "base.html" %}
+
+{% block title %}Planes por Estudiante - Sistema de Control de Acceso{% endblock %}
+
+{% block content %}
+<style>
+#studentSearchResults {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    z-index: 1000;
+    background: white;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+}
+
+#studentSearchResults .dropdown-item {
+    padding: 0.5rem 1rem;
+    border-bottom: 1px solid #f8f9fa;
+}
+
+#studentSearchResults .dropdown-item:last-child {
+    border-bottom: none;
+}
+
+#studentSearchResults .dropdown-item:hover {
+    background-color: #f8f9fa;
+}
+
+#studentSearchResults .dropdown-item.active {
+    background-color: #007bff;
+    color: white;
+}
+
+.position-relative {
+    position: relative;
+}
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="fas fa-user-tag"></i> Planes por Estudiante</h1>
+    <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#studentPlanModal">
+        <i class="fas fa-plus"></i> Asignar Plan
+    </button>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped" id="studentPlansTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Estudiante</th>
+                        <th>Plan</th>
+                        <th>Fecha Inicio</th>
+                        <th>Fecha Fin</th>
+                        <th>Estado</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Data will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- Student Plan Modal -->
+<div class="modal fade" id="studentPlanModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Asignar/Editar Plan</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form id="studentPlanForm">
+                <div class="modal-body">
+                    <input type="hidden" id="studentPlanId">
+                    <div class="mb-3">
+                        <label for="studentSearch" class="form-label">Buscar Estudiante</label>
+                        <div class="position-relative">
+                            <input type="text" class="form-control" id="studentSearch" 
+                                   placeholder="Buscar por nombre o documento..." 
+                                   autocomplete="off" required>
+                            <div id="studentSearchResults" class="dropdown-menu w-100" style="max-height: 200px; overflow-y: auto;">
+                                <!-- Search results will appear here -->
+                            </div>
+                        </div>
+                        <input type="hidden" id="selectedStudentId" required>
+                        <small class="form-text text-muted">Selecciona un estudiante de la lista</small>
+                    </div>
+                    <div class="mb-3">
+                        <label for="planSelect" class="form-label">Plan</label>
+                        <select class="form-control" id="planSelect" required>
+                            <option value="">Seleccionar plan...</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="startDate" class="form-label">Fecha de Inicio</label>
+                        <input type="date" class="form-control" id="startDate" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="endDate" class="form-label">Fecha de Fin</label>
+                        <input type="date" class="form-control" id="endDate" required>
+                    </div>
+                    <div class="mb-3">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="isActive" checked>
+                            <label class="form-check-label" for="isActive">
+                                Plan Activo
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Guardar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Global variables
+let studentPlans = [];
+let students = [];
+let plans = [];
+let currentSelectedStudent = null;
+
+// Load all data
+async function loadData() {
+    try {
+        const token = getCookieValue('access_token');
+        if (!token) {
+            window.location.href = '/admin/login';
+            return;
+        }
+        
+        const headers = {
+            'Authorization': token,
+            'Content-Type': 'application/json'
+        };
+        
+        console.log('Loading student plans data...');
+        
+        const [studentPlansResponse, studentsResponse, plansResponse] = await Promise.all([
+            axios.get('/api/student-plans/', { headers }),
+            axios.get('/api/students/', { headers }),
+            axios.get('/api/plans/', { headers })
+        ]);
+        
+        console.log('Data loaded successfully');
+        
+        studentPlans = studentPlansResponse.data;
+        students = studentsResponse.data;
+        plans = plansResponse.data;
+        
+        console.log('Student plans:', studentPlans.length);
+        console.log('Students:', students.length);
+        console.log('Plans:', plans.length);
+        
+        // Render everything
+        renderStudentPlansTable();
+        populatePlansSelect();
+        setupStudentSearch();
+        
+    } catch (error) {
+        console.error('Error loading data:', error);
+        if (error.response && error.response.status === 401) {
+            window.location.href = '/admin/login';
+        } else {
+            alert('Error al cargar datos: ' + (error.response?.data?.detail || error.message));
+        }
+    }
+}
+
+// Render student plans table
+function renderStudentPlansTable() {
+    const tbody = document.querySelector('#studentPlansTable tbody');
+    
+    if (!tbody) {
+        console.error('Student plans table body not found');
+        return;
+    }
+    
+    if (!studentPlans || studentPlans.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No hay planes asignados</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = studentPlans.map(sp => `
+        <tr>
+            <td>${sp.id}</td>
+            <td>${sp.student ? sp.student.name : 'N/A'}</td>
+            <td>${sp.plan ? sp.plan.name : 'N/A'}</td>
+            <td>${new Date(sp.start_date).toLocaleDateString()}</td>
+            <td>${new Date(sp.end_date).toLocaleDateString()}</td>
+            <td>
+                <span class="badge bg-${sp.is_active ? 'success' : 'secondary'}">
+                    ${sp.is_active ? 'Activo' : 'Inactivo'}
+                </span>
+            </td>
+            <td>
+                <button class="btn btn-sm btn-outline-primary" onclick="editStudentPlan(${sp.id})">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteStudentPlan(${sp.id})">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+// Populate plans select
+function populatePlansSelect() {
+    console.log('Populating plans select...');
+    
+    const planSelect = document.getElementById('planSelect');
+    
+    if (!planSelect) {
+        console.error('Plan select element not found');
+        return;
+    }
+    
+    console.log('Plan select found, populating with', plans.length, 'plans');
+    
+    try {
+        planSelect.innerHTML = '<option value="">Seleccionar plan...</option>' +
+            plans.map(plan => `<option value="${plan.id}">${plan.name} (${plan.monthly_entries} ingresos)</option>`).join('');
+        
+        console.log('Plans populated successfully');
+    } catch (error) {
+        console.error('Error populating plans:', error);
+    }
+}
+
+// Setup student search autocomplete
+function setupStudentSearch() {
+    const searchInput = document.getElementById('studentSearch');
+    const searchResults = document.getElementById('studentSearchResults');
+    const selectedStudentId = document.getElementById('selectedStudentId');
+    
+    if (!searchInput || !searchResults || !selectedStudentId) {
+        console.error('Student search elements not found');
+        return;
+    }
+    
+    searchInput.addEventListener('input', function(e) {
+        const query = e.target.value.toLowerCase().trim();
+        
+        if (query.length < 2) {
+            searchResults.style.display = 'none';
+            selectedStudentId.value = '';
+            currentSelectedStudent = null;
+            return;
+        }
+        
+        const filteredStudents = students.filter(student => 
+            student.name.toLowerCase().includes(query) || 
+            student.document.toLowerCase().includes(query)
+        ).slice(0, 10);
+        
+        if (filteredStudents.length === 0) {
+            searchResults.innerHTML = '<div class="dropdown-item text-muted">No se encontraron estudiantes</div>';
+            searchResults.style.display = 'block';
+            selectedStudentId.value = '';
+            currentSelectedStudent = null;
+            return;
+        }
+        
+        searchResults.innerHTML = filteredStudents.map(student => `
+            <div class="dropdown-item student-option" 
+                 data-student-id="${student.id}" 
+                 data-student-name="${student.name}"
+                 data-student-document="${student.document}"
+                 style="cursor: pointer;">
+                <div class="d-flex justify-content-between">
+                    <strong>${student.name}</strong>
+                    <span class="text-muted">${student.document}</span>
+                </div>
+            </div>
+        `).join('');
+        
+        searchResults.style.display = 'block';
+        
+        searchResults.querySelectorAll('.student-option').forEach(option => {
+            option.addEventListener('click', function() {
+                const studentId = this.dataset.studentId;
+                const studentName = this.dataset.studentName;
+                const studentDocument = this.dataset.studentDocument;
+                
+                searchInput.value = `${studentName} (${studentDocument})`;
+                selectedStudentId.value = studentId;
+                currentSelectedStudent = {
+                    id: studentId,
+                    name: studentName,
+                    document: studentDocument
+                };
+                
+                searchResults.style.display = 'none';
+            });
+        });
+    });
+    
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !searchResults.contains(e.target)) {
+            searchResults.style.display = 'none';
+        }
+    });
+    
+    searchInput.addEventListener('focus', function() {
+        if (searchInput.value.length >= 2) {
+            searchResults.style.display = 'block';
+        }
+    });
+}
+
+// Edit student plan
+function editStudentPlan(id) {
+    const sp = studentPlans.find(s => s.id === id);
+    if (!sp) {
+        alert('Plan no encontrado');
+        return;
+    }
+    
+    document.getElementById('studentPlanId').value = sp.id;
+    
+    if (sp.student) {
+        document.getElementById('studentSearch').value = `${sp.student.name} (${sp.student.document})`;
+        document.getElementById('selectedStudentId').value = sp.student_id;
+        currentSelectedStudent = {
+            id: sp.student_id,
+            name: sp.student.name,
+            document: sp.student.document
+        };
+    }
+    
+    document.getElementById('planSelect').value = sp.plan_id;
+    document.getElementById('startDate').value = sp.start_date.split('T')[0];
+    document.getElementById('endDate').value = sp.end_date.split('T')[0];
+    document.getElementById('isActive').checked = sp.is_active;
+    document.querySelector('#studentPlanModal .modal-title').textContent = 'Editar Plan';
+    
+    new bootstrap.Modal(document.getElementById('studentPlanModal')).show();
+}
+
+// Delete student plan
+async function deleteStudentPlan(id) {
+    if (confirm('¿Estás seguro de que quieres eliminar esta asignación?')) {
+        try {
+            const token = getCookieValue('access_token');
+            if (!token) {
+                window.location.href = '/admin/login';
+                return;
+            }
+            
+            await axios.delete(`/api/student-plans/${id}`, {
+                headers: { 
+                    'Authorization': token,
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            alert('Asignación eliminada exitosamente');
+            loadData();
+        } catch (error) {
+            console.error('Error deleting student plan:', error);
+            if (error.response && error.response.status === 401) {
+                window.location.href = '/admin/login';
+            } else {
+                alert('Error al eliminar asignación: ' + (error.response?.data?.detail || error.message));
+            }
+        }
+    }
+}
+
+// Form submission
+document.getElementById('studentPlanForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    
+    const id = document.getElementById('studentPlanId').value;
+    const selectedStudentId = document.getElementById('selectedStudentId').value;
+    
+    if (!selectedStudentId) {
+        alert('Por favor selecciona un estudiante');
+        return;
+    }
+    
+    const data = {
+        student_id: parseInt(selectedStudentId),
+        plan_id: parseInt(document.getElementById('planSelect').value),
+        start_date: document.getElementById('startDate').value + 'T00:00:00',
+        end_date: document.getElementById('endDate').value + 'T23:59:59',
+        is_active: document.getElementById('isActive').checked
+    };
+    
+    try {
+        const token = getCookieValue('access_token');
+        if (!token) {
+            window.location.href = '/admin/login';
+            return;
+        }
+        
+        const headers = {
+            'Authorization': token,
+            'Content-Type': 'application/json'
+        };
+        
+        if (id) {
+            await axios.put(`/api/student-plans/${id}`, data, { headers });
+        } else {
+            await axios.post('/api/student-plans/', data, { headers });
+        }
+        
+        bootstrap.Modal.getInstance(document.getElementById('studentPlanModal')).hide();
+        this.reset();
+        document.getElementById('studentPlanId').value = '';
+        document.getElementById('selectedStudentId').value = '';
+        document.getElementById('studentSearch').value = '';
+        currentSelectedStudent = null;
+        document.querySelector('#studentPlanModal .modal-title').textContent = 'Asignar Plan';
+        
+        alert('Asignación guardada exitosamente');
+        loadData();
+    } catch (error) {
+        console.error('Error saving student plan:', error);
+        if (error.response && error.response.status === 401) {
+            window.location.href = '/admin/login';
+        } else {
+            alert('Error al guardar asignación: ' + (error.response?.data?.detail || error.message));
+        }
+    }
+});
+
+// Reset form when modal is hidden
+document.getElementById('studentPlanModal').addEventListener('hidden.bs.modal', function() {
+    document.getElementById('studentPlanForm').reset();
+    document.getElementById('studentPlanId').value = '';
+    document.getElementById('selectedStudentId').value = '';
+    document.getElementById('studentSearch').value = '';
+    document.getElementById('isActive').checked = true;
+    document.getElementById('studentSearchResults').style.display = 'none';
+    currentSelectedStudent = null;
+    document.querySelector('#studentPlanModal .modal-title').textContent = 'Asignar Plan';
+});
+
+// Utility function
+function getCookieValue(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return '';
+}
+
+// Initialize when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('DOM loaded, initializing student plans page...');
+    
+    // Debug elements
+    const modal = document.getElementById('studentPlanModal');
+    const planSelect = document.getElementById('planSelect');
+    const studentSearch = document.getElementById('studentSearch');
+    
+    console.log('Modal exists:', !!modal);
+    console.log('Plan select exists:', !!planSelect);
+    console.log('Student search exists:', !!studentSearch);
+    
+    // Load data immediately
+    loadData();
+});
+</script>
+{% endblock %}

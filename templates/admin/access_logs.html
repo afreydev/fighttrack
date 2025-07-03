@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block title %}Registros de Acceso - Sistema de Control de Acceso{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="fas fa-history"></i> Registros de Acceso</h1>
+    <div class="d-flex gap-2">
+        <input type="date" class="form-control" id="filterDate" placeholder="Filtrar por fecha">
+        <button class="btn btn-outline-primary" onclick="filterByDate()">
+            <i class="fas fa-filter"></i> Filtrar
+        </button>
+        <button class="btn btn-outline-secondary" onclick="clearFilter()">
+            <i class="fas fa-times"></i> Limpiar
+        </button>
+    </div>
+</div>
+
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card bg-primary text-white">
+            <div class="card-body">
+                <h5>Total de Accesos</h5>
+                <h3 id="totalAccess">0</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-success text-white">
+            <div class="card-body">
+                <h5>Accesos Hoy</h5>
+                <h3 id="todayAccess">0</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-warning text-white">
+            <div class="card-body">
+                <h5>Esta Semana</h5>
+                <h3 id="weekAccess">0</h3>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card bg-info text-white">
+            <div class="card-body">
+                <h5>Este Mes</h5>
+                <h3 id="monthAccess">0</h3>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped" id="accessLogsTable">
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Estudiante</th>
+                        <th>Documento</th>
+                        <th>Plan</th>
+                        <th>Fecha y Hora</th>
+                        <th>Notas</th>
+                        <th>Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Data will be loaded here -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let accessLogs = [];
+let filteredLogs = [];
+
+async function loadAccessLogs() {
+    try {
+        const token = getCookieValue('access_token');
+        if (!token) {
+            window.location.href = '/admin/login';
+            return;
+        }
+        
+        const response = await axios.get('/api/access-logs/', {
+            headers: { 
+                'Authorization': token,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        accessLogs = response.data;
+        filteredLogs = [...accessLogs];
+        renderAccessLogsTable();
+        updateStatistics();
+    } catch (error) {
+        console.error('Error loading access logs:', error);
+        if (error.response && error.response.status === 401) {
+            window.location.href = '/admin/login';
+        } else {
+            alert('Error al cargar registros de acceso: ' + (error.response?.data?.detail || error.message));
+        }
+    }
+}
+
+function renderAccessLogsTable() {
+    const tbody = document.querySelector('#accessLogsTable tbody');
+    tbody.innerHTML = filteredLogs.map(log => `
+        <tr>
+            <td>${log.id}</td>
+            <td>${log.student.name}</td>
+            <td>${log.student.document}</td>
+            <td>${log.student_plan.plan.name}</td>
+            <td>${new Date(log.access_time).toLocaleString()}</td>
+            <td>${log.notes || '-'}</td>
+            <td>
+                <a href="/reports/student/${log.student.id}" class="btn btn-sm btn-outline-info">
+                    <i class="fas fa-user"></i>
+                </a>
+                <a href="/reports/plan/${log.student_plan.plan.id}" class="btn btn-sm btn-outline-primary">
+                    <i class="fas fa-clipboard-list"></i>
+                </a>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function updateStatistics() {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const weekAgo = new Date(today.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthAgo = new Date(today.getTime() - 30 * 24 * 60 * 60 * 1000);
+    
+    const todayCount = accessLogs.filter(log => {
+        const logDate = new Date(log.access_time);
+        return logDate >= today;
+    }).length;
+    
+    const weekCount = accessLogs.filter(log => {
+        const logDate = new Date(log.access_time);
+        return logDate >= weekAgo;
+    }).length;
+    
+    const monthCount = accessLogs.filter(log => {
+        const logDate = new Date(log.access_time);
+        return logDate >= monthAgo;
+    }).length;
+    
+    document.getElementById('totalAccess').textContent = accessLogs.length;
+    document.getElementById('todayAccess').textContent = todayCount;
+    document.getElementById('weekAccess').textContent = weekCount;
+    document.getElementById('monthAccess').textContent = monthCount;
+}
+
+function filterByDate() {
+    const filterDate = document.getElementById('filterDate').value;
+    if (!filterDate) {
+        alert('Por favor selecciona una fecha');
+        return;
+    }
+    
+    const selectedDate = new Date(filterDate);
+    const nextDay = new Date(selectedDate.getTime() + 24 * 60 * 60 * 1000);
+    
+    filteredLogs = accessLogs.filter(log => {
+        const logDate = new Date(log.access_time);
+        return logDate >= selectedDate && logDate < nextDay;
+    });
+    
+    renderAccessLogsTable();
+}
+
+function clearFilter() {
+    document.getElementById('filterDate').value = '';
+    filteredLogs = [...accessLogs];
+    renderAccessLogsTable();
+}
+
+function getCookieValue(name) {
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    if (parts.length === 2) return parts.pop().split(';').shift();
+    return '';
+}
+
+document.addEventListener('DOMContentLoaded', loadAccessLogs);
+</script>
+{% endblock %}

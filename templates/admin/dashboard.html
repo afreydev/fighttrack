@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Sistema de Control de Acceso{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h1><i class="fas fa-tachometer-alt"></i> Dashboard</h1>
+</div>
+
+<div class="row">
+    <div class="col-md-3 mb-4">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Estudiantes</h5>
+                        <h2 id="totalStudents">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-users fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <a href="/admin/students" class="text-white text-decoration-none">
+                    Ver todos <i class="fas fa-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-4">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Planes</h5>
+                        <h2 id="totalPlans">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-clipboard-list fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <a href="/admin/plans" class="text-white text-decoration-none">
+                    Ver todos <i class="fas fa-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-4">
+        <div class="card text-white bg-warning">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Planes Activos</h5>
+                        <h2 id="activePlans">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-user-tag fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <a href="/admin/student-plans" class="text-white text-decoration-none">
+                    Ver todos <i class="fas fa-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-3 mb-4">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Accesos Hoy</h5>
+                        <h2 id="todayAccess">0</h2>
+                    </div>
+                    <div class="align-self-center">
+                        <i class="fas fa-door-open fa-2x"></i>
+                    </div>
+                </div>
+            </div>
+            <div class="card-footer">
+                <a href="/admin/access-logs" class="text-white text-decoration-none">
+                    Ver todos <i class="fas fa-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-chart-line"></i> Accesos Recientes</h5>
+            </div>
+            <div class="card-body">
+                <div id="recentAccess">
+                    <p class="text-muted">Cargando...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-clock"></i> Acciones Rápidas</h5>
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="/admin/students" class="btn btn-outline-primary">
+                        <i class="fas fa-user-plus"></i> Agregar Estudiante
+                    </a>
+                    <a href="/admin/plans" class="btn btn-outline-success">
+                        <i class="fas fa-plus"></i> Crear Plan
+                    </a>
+                    <a href="/admin/student-plans" class="btn btn-outline-warning">
+                        <i class="fas fa-link"></i> Asignar Plan a Estudiante
+                    </a>
+                    <a href="/student/access" class="btn btn-outline-info">
+                        <i class="fas fa-door-open"></i> Registrar Acceso
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Load dashboard data
+async function loadDashboardData() {
+    try {
+        // Get token from cookie
+        const token = getCookieValue('access_token');
+        console.log('Token found:', token ? 'Yes' : 'No');
+        
+        if (!token) {
+            console.log('No token found, redirecting to login');
+            window.location.href = '/admin/login';
+            return;
+        }
+        
+        const headers = {
+            'Authorization': token,
+            'Content-Type': 'application/json'
+        };
+        
+        console.log('Loading dashboard data...');
+        
+        // Load data sequentially to avoid overwhelming the server
+        await loadStudentsData(headers);
+        await loadPlansData(headers);
+        await loadStudentPlansData(headers);
+        await loadAccessLogsData(headers);
+        
+        console.log('Dashboard data loaded successfully');
+        
+    } catch (error) {
+        console.error('Error loading dashboard data:', error);
+        console.error('Error details:', error.response?.data);
+        console.error('Error status:', error.response?.status);
+        
+        // Only redirect if it's specifically an auth error
+        if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+            console.log('Authentication error, redirecting to login');
+            window.location.href = '/admin/login';
+        }
+    }
+}
+
+async function loadStudentsData(headers) {
+    try {
+        console.log('Loading students data...');
+        const response = await axios.get('/api/students/', { headers });
+        document.getElementById('totalStudents').textContent = response.data.length;
+        console.log('Students loaded:', response.data.length);
+    } catch (error) {
+        console.error('Error loading students:', error);
+        document.getElementById('totalStudents').textContent = 'Error';
+    }
+}
+
+async function loadPlansData(headers) {
+    try {
+        console.log('Loading plans data...');
+        const response = await axios.get('/api/plans/', { headers });
+        document.getElementById('totalPlans').textContent = response.data.length;
+        console.log('Plans loaded:', response.data.length);
+    } catch (error) {
+        console.error('Error loading plans:', error);
+        document.getElementById('totalPlans').textContent = 'Error';
+    }
+}
+
+async function loadStudentPlansData(headers) {
+    try {
+        console.log('Loading student plans data...');
+        const response = await axios.get('/api/student-plans/', { headers });
+        document.getElementById('activePlans').textContent = response.data.length;
+        console.log('Student plans loaded:', response.data.length);
+    } catch (error) {
+        console.error('Error loading student plans:', error);
+        document.getElementById('activePlans').textContent = 'Error';
+    }
+}
+
+async function loadAccessLogsData(headers) {
+    try {
+        console.log('Loading access logs data...');
+        const response = await axios.get('/api/access-logs/', { headers });
+        const accessLogs = response.data;
+        
+        // Count today's access
+        const today = new Date().toISOString().split('T')[0];
+        const todayAccess = accessLogs.filter(log => 
+            log.access_time && log.access_time.startsWith(today)
+        ).length;
+        document.getElementById('todayAccess').textContent = todayAccess;
+        
+        // Display recent access
+        const recentAccessHtml = accessLogs
+            .sort((a, b) => new Date(b.access_time) - new Date(a.access_time))
+            .slice(0, 5)
+            .map(log => `
+                <div class="border-bottom pb-2 mb-2">
+                    <strong>${log.student ? log.student.name : 'Estudiante desconocido'}</strong><br>
+                    <small class="text-muted">${log.access_time ? new Date(log.access_time).toLocaleString() : 'Fecha no disponible'}</small>
+                </div>
+            `).join('');
+        
+        document.getElementById('recentAccess').innerHTML = recentAccessHtml || '<p class="text-muted">No hay accesos recientes</p>';
+        
+        console.log('Access logs loaded:', accessLogs.length, 'Today:', todayAccess);
+    } catch (error) {
+        console.error('Error loading access logs:', error);
+        document.getElementById('todayAccess').textContent = 'Error';
+        document.getElementById('recentAccess').innerHTML = '<p class="text-muted">Error al cargar accesos</p>';
+    }
+}
+
+function getCookieValue(name) {
+    console.log('Looking for cookie:', name);
+    console.log('All cookies:', document.cookie);
+    
+    const value = `; ${document.cookie}`;
+    const parts = value.split(`; ${name}=`);
+    
+    console.log('Cookie parts:', parts);
+    
+    if (parts.length === 2) {
+        const cookieValue = parts.pop().split(';').shift();
+        console.log('Found cookie value:', cookieValue ? cookieValue.substring(0, 30) + '...' : 'empty');
+        return cookieValue;
+    }
+    
+    console.log('Cookie not found');
+    return '';
+}
+
+// Load data when page loads
+document.addEventListener('DOMContentLoaded', loadDashboardData);
+</script>
+{% endblock %}
