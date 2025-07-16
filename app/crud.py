@@ -134,17 +134,17 @@ def get_monthly_access_count(db: Session, student_plan_id: int, month: int, year
         )
     ).count()
 
-def can_student_access(db: Session, student_id: int) -> tuple[bool, str, Optional[models.StudentPlan]]:
+def can_student_access(db: Session, student_id: int) -> tuple[bool, str, Optional[models.StudentPlan], Optional[int]]:
     """Check if student can access based on their active plan"""
     student_plan = get_active_student_plan(db, student_id)
     
     if not student_plan:
-        return False, "No hay plan activo para este estudiante", None
+        return False, "No hay plan activo para este estudiante", None, 0
     
     # Check if current date is within plan period
     now = datetime.utcnow()
     if now < student_plan.start_date or now > student_plan.end_date:
-        return False, "El plan no está activo en este período", student_plan
+        return False, "El plan no está activo en este período", student_plan, 0
     
     # Count accesses this month
     current_month = now.month
@@ -152,9 +152,12 @@ def can_student_access(db: Session, student_id: int) -> tuple[bool, str, Optiona
     monthly_accesses = get_monthly_access_count(db, student_plan.id, current_month, current_year)
     
     if monthly_accesses >= student_plan.plan.monthly_entries:
-        return False, "Has agotado tu límite mensual de ingresos", student_plan
+        return False, "Has agotado tu límite mensual de ingresos", student_plan, 0
     
-    return True, "Acceso permitido", student_plan
+    pending_monthly_accesses = student_plan.plan.monthly_entries - monthly_accesses
+    print(pending_monthly_accesses)
+    
+    return True, "Acceso permitido", student_plan, pending_monthly_accesses
 
 def get_student_report(db: Session, student_id: int):
     student = get_student(db, student_id)

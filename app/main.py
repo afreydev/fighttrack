@@ -152,7 +152,7 @@ async def student_access(
             "error": "Estudiante no encontrado"
         })
     
-    can_access, message, student_plan = can_student_access(db, student.id)
+    can_access, message, student_plan, pending_monthly_accesses = can_student_access(db, student.id)
     
     if can_access:
         # Create access log using the proper schema
@@ -167,7 +167,8 @@ async def student_access(
             "request": request,
             "success": f"¡Bienvenido {student.name}! Acceso permitido.",
             "student": student,
-            "plan": student_plan.plan if student_plan else None
+            "plan": student_plan.plan if student_plan else None,
+            "pending": pending_monthly_accesses
         })
     else:
         return templates.TemplateResponse("student/access.html", {
