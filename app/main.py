@@ -162,13 +162,15 @@ async def student_access(
             notes="Acceso registrado automáticamente"
         )
         create_access_log(db, access_log_data)
+
+        pending = pending_monthly_accesses - 1
         
         return templates.TemplateResponse("student/access.html", {
             "request": request,
             "success": f"¡Bienvenido {student.name}! Acceso permitido.",
             "student": student,
             "plan": student_plan.plan if student_plan else None,
-            "pending": pending_monthly_accesses
+            "pending": pending
         })
     else:
         return templates.TemplateResponse("student/access.html", {
