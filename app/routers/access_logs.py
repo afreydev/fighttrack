@@ -41,12 +41,10 @@ def create_access_log(access_log: schemas.AccessLogCreate, db: Session = Depends
     if not student:
         raise HTTPException(status_code=404, detail="Estudiante no encontrado")
     
-    # Verify student plan exists
-    student_plan = crud.get_student_plan(db, access_log.student_plan_id)
-    if not student_plan:
-        raise HTTPException(status_code=404, detail="Plan de estudiante no encontrado")
-    
-    return crud.create_access_log(db=db, access_log=access_log)
+    try:
+        return crud.create_access_log(db=db, access_log=access_log)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.get("/{access_log_id}", response_model=schemas.AccessLog)
 def read_access_log(access_log_id: int, db: Session = Depends(get_db), authorized: bool = Depends(verify_admin_api)):

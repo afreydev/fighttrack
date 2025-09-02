@@ -78,14 +78,43 @@ def get_student_plans(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.StudentPlan).offset(skip).limit(limit).all()
 
 def get_active_student_plan(db: Session, student_id: int):
-    return db.query(models.StudentPlan).filter(
+    """
+    Get the truly active plan for a student
+    Priority: is_active=True AND current date within range
+    """
+    now = datetime.utcnow()
+    
+    # First try: get plan that is both marked active AND within date range
+    active_plan = db.query(models.StudentPlan).filter(
         and_(
             models.StudentPlan.student_id == student_id,
             models.StudentPlan.is_active == True,
-            models.StudentPlan.start_date <= datetime.utcnow(),
-            models.StudentPlan.end_date >= datetime.utcnow()
+            models.StudentPlan.start_date <= now,
+            models.StudentPlan.end_date >= now
         )
-    ).first()
+    ).order_by(models.StudentPlan.created_at.desc()).first()
+    
+    if active_plan:
+        return active_plan
+    
+    # If no active plan found, check if there are plans marked active but with wrong dates
+    # This helps identify data inconsistencies
+    marked_active = db.query(models.StudentPlan).filter(
+        and_(
+            models.StudentPlan.student_id == student_id,
+            models.StudentPlan.is_active == True
+        )
+    ).all()
+    
+    # If we have plans marked as active but outside date range, fix them
+    if marked_active:
+        for plan in marked_active:
+            if plan.end_date < now:
+                plan.is_active = False
+                plan.updated_at = now
+        db.commit()
+    
+    return None
 
 def create_student_plan(db: Session, student_plan: schemas.StudentPlanCreate):
     db_student_plan = models.StudentPlan(**student_plan.dict())
@@ -119,11 +148,28 @@ def get_access_logs(db: Session, skip: int = 0, limit: int = 100):
     return db.query(models.AccessLog).offset(skip).limit(limit).all()
 
 def create_access_log(db: Session, access_log: schemas.AccessLogCreate):
-    db_access_log = models.AccessLog(**access_log.dict())
+    # Get the student's active plan - ignore the student_plan_id from the request
+    active_plan = get_active_student_plan(db, access_log.student_id)
+    
+    if not active_plan:
+        raise ValueError("No hay plan activo para este estudiante")
+    
+    # Check if access is allowed
+    can_access, message, _, remaining = can_student_access(db, access_log.student_id)
+    if not can_access:
+        raise ValueError(f"Acceso denegado: {message}")
+    
+    # Create access log with the CORRECT active plan (ignore request's student_plan_id)
+    access_log_data = {
+        "student_id": access_log.student_id,
+        "student_plan_id": active_plan.id,  # Always use the active plan
+        "notes": access_log.notes
+    }
+    
+    db_access_log = models.AccessLog(**access_log_data)
     db.add(db_access_log)
     db.commit()
     db.refresh(db_access_log)
-    return db_access_log
 
 def get_monthly_access_count(db: Session, student_plan_id: int, month: int, year: int):
     return db.query(models.AccessLog).filter(
@@ -136,17 +182,24 @@ def get_monthly_access_count(db: Session, student_plan_id: int, month: int, year
 
 def can_student_access(db: Session, student_id: int) -> tuple[bool, str, Optional[models.StudentPlan], Optional[int]]:
     """Check if student can access based on their active plan"""
+    
+    # Get the active plan - this should be the ONLY plan we check
     student_plan = get_active_student_plan(db, student_id)
     
     if not student_plan:
         return False, "No hay plan activo para este estudiante", None, 0
     
-    # Check if current date is within plan period
+    # Double-check dates (should be redundant with improved get_active_student_plan)
     now = datetime.utcnow()
     if now < student_plan.start_date or now > student_plan.end_date:
-        return False, "El plan no está activo en este período", student_plan, 0
+        # This shouldn't happen with the improved function above
+        # But if it does, deactivate the plan
+        student_plan.is_active = False
+        student_plan.updated_at = now
+        db.commit()
+        return False, "El plan ha expirado", None, 0
     
-    # Count accesses this month
+    # Count accesses this month for THIS specific plan
     current_month = now.month
     current_year = now.year
     monthly_accesses = get_monthly_access_count(db, student_plan.id, current_month, current_year)
@@ -155,7 +208,6 @@ def can_student_access(db: Session, student_id: int) -> tuple[bool, str, Optiona
         return False, "Has agotado tu límite mensual de ingresos", student_plan, 0
     
     pending_monthly_accesses = student_plan.plan.monthly_entries - monthly_accesses
-    print(pending_monthly_accesses)
     
     return True, "Acceso permitido", student_plan, pending_monthly_accesses
 
