@@ -171,6 +171,8 @@ def create_access_log(db: Session, access_log: schemas.AccessLogCreate):
     db.commit()
     db.refresh(db_access_log)
 
+    return db_access_log
+
 def get_monthly_access_count(db: Session, student_plan_id: int, month: int, year: int):
     return db.query(models.AccessLog).filter(
         and_(
